@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Inventra AI — Local Vision Lab</title>
+<style>body{font:16px system-ui;background:#101827;color:#eef3fa;max-width:760px;margin:auto;padding:18px}button,input{font:inherit;padding:12px;margin:5px;border-radius:9px}button{background:#3876df;color:white;border:0}video{width:100%;max-height:430px;background:#000;border-radius:12px}section{background:#1c293b;padding:16px;margin:14px 0;border-radius:12px}small{color:#becbdd}#results{white-space:pre-wrap}a{color:#a9caff}</style>
+<h1>Inventra AI · Local Vision Lab</h1>
+<p><a href="./">← Inventory</a></p>
+<section><p>This experimental scanner runs image classification <strong>on this device</strong>. First use downloads a free model. It recognizes broad visual categories, <strong>not exact product brands, SKUs, quantities, or box contents</strong>. Review every result.</p>
+<button id="load">Download / load AI model</button><p id="modelStatus" role="status">Model not loaded.</p></section>
+<section><video id="video" autoplay muted playsinline></video><p><button id="start">Start camera</button><button id="analyze" disabled>Analyze frame locally</button><button id="stop">Stop camera</button></p><p id="results" role="status"></p><canvas id="canvas" hidden></canvas></section>
+<section><h2>Register manually</h2><p><small>Classification is only a suggestion. Enter the actual product and quantity in the inventory form.</small></p><button id="inventory">Go to inventory form</button></section>
+<script type="module">
+const $=id=>document.getElementById(id);let classifier=null,stream=null,busy=false;
+$('load').onclick=async()=>{if(busy||classifier)return;busy=true;$('load').disabled=true;$('modelStatus').textContent='Downloading/loading model; first use requires internet and may take a while…';
+try{
+ const {pipeline,env}=await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1');
+ env.allowRemoteModels=true;
+ classifier=await pipeline('image-classification','Xenova/vit-base-patch16-224',{device:'wasm'});
+ $('modelStatus').textContent='AI loaded locally (WASM). Image frames are not sent to an inference server.';
+ $('analyze').disabled=!stream;
+}catch(e){$('modelStatus').textContent='AI load failed: '+e.message+' — check connection, browser memory, and storage.';$('load').disabled=false;}finally{busy=false}};
+$('start').onclick=async()=>{if(stream)return;try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});$('video').srcObject=stream;$('analyze').disabled=!classifier;$('results').textContent='Camera ready.'}catch(e){$('results').textContent='Camera error: '+e.message}};
+$('stop').onclick=()=>{stream?.getTracks().forEach(t=>t.stop());stream=null;$('video').srcObject=null;$('analyze').disabled=true;$('results').textContent='Camera stopped.'};
+$('analyze').onclick=async()=>{if(!classifier||!stream||busy||$('video').readyState<2)return;busy=true;$('analyze').disabled=true;$('results').textContent='Analyzing frame on device…';
+try{const v=$('video'),c=$('canvas');const scale=Math.min(1,640/v.videoWidth);c.width=Math.max(1,Math.round(v.videoWidth*scale));c.height=Math.max(1,Math.round(v.videoHeight*scale));c.getContext('2d').drawImage(v,0,0,c.width,c.height);
+const data=c.toDataURL('image/jpeg',0.85);const predictions=await classifier(data,{top_k:3});
+$('results').textContent='Visual suggestions (not verified products):\n'+predictions.map(x=>x.label+' — '+Math.round(x.score*100)+'%').join('\n')+'\n\nEnter the verified product name and quantity manually.';
+}catch(e){$('results').textContent='Inference failed: '+e.message}finally{busy=false;$('analyze').disabled=!classifier||!stream}};
+$('inventory').onclick=()=>location.href='./';
+</script></html>
